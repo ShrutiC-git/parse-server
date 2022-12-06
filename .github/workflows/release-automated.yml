@@ -1,20 +1,20 @@
 name: release-automated
 on:
-  push:
-    branches: [ release, alpha, beta, next-major, 'release-[0-9]+.x.x' ]
+  #push:
+  #  branches: [ release, alpha, beta, next-major, 'release-[0-9]+.x.x' ]
+  pull_request:
+    types: [opened, synchronize, reopened, closed, review_requested]
 jobs:
   release:
     runs-on: ubuntu-latest
-    outputs:
-      current_tag: ${{ steps.tag.outputs.current_tag }}
-      trigger_branch: ${{ steps.branch.outputs.trigger_branch }}
+    #outputs:
+    #  current_tag: ${{ steps.tag.outputs.current_tag }}
+    #  trigger_branch: ${{ steps.branch.outputs.trigger_branch }}
     steps:
       - name: Determine trigger branch name
         id: branch
         run: echo "::set-output name=trigger_branch::${GITHUB_REF#refs/*/}"
       - uses: actions/checkout@v2
-        with:
-          persist-credentials: false
       - uses: actions/setup-node@v2
         with:
           node-version: 18.1.0
@@ -38,7 +38,7 @@ jobs:
 
   docker:
     needs: release
-    if: needs.release.outputs.current_tag != ''
+    # if: needs.release.outputs.current_tag != ''
     env:
       REGISTRY: docker.io
       IMAGE_NAME: parseplatform/parse-server
@@ -67,7 +67,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v4
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: |
@@ -79,37 +79,43 @@ jobs:
         with:
           context: .
           platforms: linux/amd64, linux/arm/v6, linux/arm/v7, linux/arm64/v8
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  docs:
-    needs: release
-    if: needs.release.outputs.current_tag != '' && github.ref == 'refs/heads/release'
-    runs-on: ubuntu-18.04
-    timeout-minutes: 15
+    # Create a preview for the pull request
+  preview-pull-request:
+    name: "Trigger Uffizzi Preview"
+    # if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.event.pull_request.draft == false && github.base_ref == 'develop' && github.event.action != 'closed' }}
+    runs-on: 'ubuntu-latest'
+    needs: [release,docker]
+    outputs:
+      compose-file-cache-key:  ${{ env.HASH }}
     steps:
-      - uses: actions/checkout@v2
-      - name: Use Node.js
-        uses: actions/setup-node@v1
-        with:
-          node-version: 18.1.0
-      - name: Cache Node.js modules
-        uses: actions/cache@v2
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-              ${{ runner.os }}-node-
-      - name: Generate Docs
+      - name: Checkout git repo
+        uses: actions/checkout@v3
+      - name: Render Compose File
         run: |
-          echo $SOURCE_TAG
-          npm ci
-          ./release_docs.sh
-        env:
-          SOURCE_TAG: ${{ needs.release.outputs.current_tag }}
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3.7.3
+          PARSE_SERVER_IMAGE=nocodb/nocodb-timely:${{ needs.set-tag.outputs.current_version }}-${{ needs.set-tag.outputs.target_tag }}
+          export NOCODB_IMAGE
+          # Render simple template from environment variables.
+          envsubst < .github/uffizzi/docker-compose.uffizzi.yml > docker-compose.rendered.yml
+          cat docker-compose.rendered.yml
+      - name: Upload Rendered Compose File as Artifact
+        uses: actions/upload-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
+          name: preview-spec
+          path: docker-compose.rendered.yml
+          retention-days: 2
+      - name: Serialize PR Event to File
+        run:  |
+          cat << EOF > event.json
+          ${{ toJSON(github.event) }}
+          EOF
+      - name: Upload PR Event as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: preview-spec
+          path: event.json
+          retention-days: 2
+
