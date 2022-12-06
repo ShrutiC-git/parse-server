@@ -1,7 +1,7 @@
 name: Build PR Image
 on:
   pull_request:
-    types: [ opened, reopened, review_requested ]
+    types: [ opened, reopened, review_requested, synchronize ]
 jobs:
   release:
     runs-on: ubuntu-latest
