@@ -1248,7 +1248,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
         list.push(fieldName);
       }
       delete schema.fields[fieldName];
-      return "HELLO";
+      return list;
     }, []);
 
     const values = [className, ...fieldNames];
