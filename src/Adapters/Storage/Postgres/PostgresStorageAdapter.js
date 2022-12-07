@@ -1247,7 +1247,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
       if (field.type !== 'Relation') {
         list.push(fieldName);
       }
-      delete schema.fields[fieldName];
+      // delete schema.fields[fieldName];
       return "TESTING DELETE - UPDATE SERVER";
     }, []);
 
